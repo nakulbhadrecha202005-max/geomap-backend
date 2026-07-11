@@ -58,7 +58,7 @@
 //   })
 // })
 
-// server.listen(3000, () => console.log('http://localhost:3000'))
+// server.listen(3000, () => console.log('https://rakshapath-inky.vercel.app/'))
 
 const express = require('express')
 const cors = require('cors')
@@ -78,7 +78,7 @@ app.get('/', (req, res) => {
 })
 const sockek_io_steup = socketio(server, {
   cors: {
-    origin: '*',
+    origin: 'https://rakshapath-inky.vercel.app/',
     methods: ['GET', 'POST'],
     credentials: true
   }
