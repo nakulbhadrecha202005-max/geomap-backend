@@ -1,0 +1,27 @@
+check browser support geo location
+high accuracy they check 
+    a) we do 5s gap while their checking , 
+    b) no caching
+
+use watch position to track users location correctly 
+    emit latitude and longitude via socket (send-location)
+    console.log() error for 
+
+initialize map leaflat  
+    a) center at cooordinates (0,0).
+    b) zoom level 15 or an be dec or inc  
+    c) add OpenStreetMap tiles 
+
+create empty obj "marker" as a variable
+
+reciving location data  via socket 
+    -> we have to take from users
+        a) id, latitude , longitude and center map at new coordinates 
+
+if "marker" id (of user) exists then
+    a) update their location 
+    b) not exist create as per given coordinates 
+    c) if user dicconnect from map disconnect from map / delete it from map 
+
+https://geoman.io/demo/leaflet?utm_source=chatgpt.com
+    
