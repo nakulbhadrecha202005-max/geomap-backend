@@ -24,4 +24,6 @@ if "marker" id (of user) exists then
     c) if user dicconnect from map disconnect from map / delete it from map 
 
 https://geoman.io/demo/leaflet?utm_source=chatgpt.com
+
+if i explain you by example that means 3,4 users are there name A,B,C,D A is at home B wants to go at school now B is female and myy family member of my so in this map A is logged in and he found his current location shown by map and A select starting point to destination of B this selected path is visible by B in their B login in their website and A can watch live location of B and A is at current live location if the selected startin point and ending point of B by selectted by A if b goest out or route or goes diffferent route alert or notification recieved to A and C user cannot watch A,B live location intheir login make like that logic in cdoe here is my code : 
     

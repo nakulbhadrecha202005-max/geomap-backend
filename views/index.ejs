@@ -1,24 +1,377 @@
+<!-- index.ejs -->
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
-    <link rel="stylesheet" href="/css/style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css"
-        integrity="sha512-Zcn6bjR/8RZbLEpLIeOwNtzREBAJnUKESxces60Mpoj+2okopSAcSUIUOseddDm0cxnGQzxIR7vJgsLZbdLE3w=="
-        crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <title>RakshaPath - Secure Safety Map</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/leaflet-routing-machine/3.2.12/leaflet-routing-machine.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            font-family: Arial, sans-serif;
+        }
+
+        #header-bar {
+            height: 60px;
+            background: #111;
+            color: #fff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+        }
+
+        #header-bar a {
+            color: #ff4d4d;
+            text-decoration: none;
+            font-weight: bold;
+            margin-left: 15px;
+        }
+
+        #main-container {
+            display: flex;
+            height: calc(100% - 60px);
+            width: 100%;
+        }
+
+        #sidebar {
+            width: 300px;
+            background: #f4f4f4;
+            border-right: 1px solid #ccc;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+        }
+
+        #map {
+            flex-grow: 1;
+            height: 100%;
+            position: relative;
+        }
+
+        .alert-box {
+            background: #ffdddd;
+            color: #d8000c;
+            border: 1px solid #d8000c;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 13px;
+            display: none;
+        }
+
+        select,
+        input {
+            font-family: inherit;
+        }
+
+        .status-pill {
+            display: inline-block;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            margin-left: 6px;
+        }
+
+        .status-online {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-offline {
+            background: #eee;
+            color: #888;
+        }
+
+        .leaflet-routing-container {
+            display: none !important;
+        }
+    </style>
 </head>
 
 <body>
-    <div id="map"></div>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"
-        integrity="sha512-puJW3E/qXDqYp9IfhAI54BJEaWIfloJ7JWs7OeD5i6ruC9JZL1gERT1wjtwXFlh7CjE7ZJ+/vcRZRkIYIb6p4g=="
-        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+    <div id="header-bar">
+        <div>
+            <strong>RakshaPath Map</strong> | User: <span style="color:#1e90ff;">
+                <%= user.name %>
+            </span>
+            <% if (room) { %> | Room: <b>
+                    <%= room.roomName %>
+                </b> (<%= isGuardian ? 'Guardian Mode' : 'Member Mode' %>)<% } %>
+        </div>
+        <div>
+            <a href="/logout">Logout</a>
+        </div>
+    </div>
+
+    <div id="main-container">
+        <div id="sidebar">
+            <% if (!room) { %>
+                <h3>Family Room setup</h3>
+                <form action="/create-room" method="POST">
+                    <input type="text" name="roomName" placeholder="Create Room Name" required
+                        style="width:100%; padding:8px; margin-bottom:5px;" />
+                    <button type="submit"
+                        style="width:100%; padding:8px; background:#28a745; color:white; border:none; border-radius:4px;">Create
+                        as Guardian</button>
+                </form>
+                <hr>
+                <form action="/join-room" method="POST">
+                    <input type="text" name="roomId" placeholder="Paste Room ID to Join" required
+                        style="width:100%; padding:8px; margin-bottom:5px;" />
+                    <button type="submit"
+                        style="width:100%; padding:8px; background:#007bff; color:white; border:none; border-radius:4px;">Join
+                        Room</button>
+                </form>
+                <% } else { %>
+                    <h3>Room Details</h3>
+                    <p style="font-size:11px; color:#666;">ID: <%= room._id %>
+                    </p>
+                    <div id="deviation-alert" class="alert-box"></div>
+
+                    <div>
+                        <h4>Members inside:</h4>
+                        <ul id="member-list" style="padding-left:15px; font-size:14px; margin-top:5px;">
+                            <% room.members.forEach(m=> { %>
+                                <li id="member-item-<%= m._id.toString() %>">
+                                    <%= m.name %>
+                                        <%= m._id.toString()===room.admin.toString() ? '(Guardian)' : '' %>
+                                            <span class="status-pill status-offline"
+                                                id="status-<%= m._id.toString() %>">offline</span>
+                                </li>
+                                <% }) %>
+                        </ul>
+                    </div>
+
+                    <% if (isGuardian) { %>
+                        <div style="background:#e2f0d9; padding:10px; border-radius:4px; font-size:12px;">
+                            <strong>Guardian Controls:</strong><br />
+                            1. Pick which member you want to assign a route to.<br />
+                            2. Click anywhere on the map to set their destination and generate a safe route.
+                        </div>
+                        <div>
+                            <label for="member-select" style="font-size:13px; font-weight:bold;">Assign route
+                                to:</label>
+                            <select id="member-select" style="width:100%; padding:8px; margin-top:5px;">
+                                <% room.members.forEach(m=> { %>
+                                    <% if (m._id.toString() !==room.admin.toString()) { %>
+                                        <option value="<%= m._id.toString() %>">
+                                            <%= m.name %>
+                                        </option>
+                                        <% } %>
+                                            <% }) %>
+                            </select>
+                        </div>
+                        <% } %>
+                            <% } %>
+        </div>
+
+        <div id="map"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script
+        src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-routing-machine/3.2.12/leaflet-routing-machine.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
-    <script src="/js/script.js"></script>
+
+    <script>
+        (function () {
+            const socket = io();
+            const currentUserId = "<%= user._id %>";
+            const currentUserName = "<%= user.name %>";
+            const roomId = "<%= room ? room._id : '' %>";
+            const isGuardian = "<%= isGuardian %>";
+
+            // Initialize map
+            const map = L.map('map').setView([20, 78], 5);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: 'RakshaPath Systems' }).addTo(map);
+
+            let myCurrentLatLng = null;
+
+            // Per-user state, so multiple members can each have their own live marker,
+            // assigned route, active route history id, and "wrong path" trail.
+            const memberState = {}; // userId -> { marker, routeLine, wrongLine, activeGeometry, historyId }
+
+            function getOrCreateState(userId) {
+                if (!memberState[userId]) {
+                    memberState[userId] = {
+                        marker: null,
+                        routeLine: null,
+                        wrongLine: L.polyline([], { color: 'red', weight: 4, dashArray: '5, 10' }),
+                        activeGeometry: null,
+                        historyId: null
+                    };
+                }
+                return memberState[userId];
+            }
+
+            if (roomId) {
+                socket.emit('join-room', { roomId, userId: currentUserId });
+            }
+
+            socket.on('join-error', (payload) => {
+                alert(payload.message || 'Could not join room channel.');
+            });
+
+            // GPS watcher
+            if (navigator.geolocation && roomId) {
+                navigator.geolocation.watchPosition((position) => {
+                    const { latitude, longitude } = position.coords;
+                    myCurrentLatLng = L.latLng(latitude, longitude);
+
+                    socket.emit('send-Location', { latitude, longitude, username: currentUserName });
+
+                    if (!isGuardian) {
+                        const state = memberState[currentUserId];
+                        if (state && state.activeGeometry) {
+                            checkRouteDeviation(currentUserId, myCurrentLatLng);
+                        }
+                    }
+                }, (err) => console.error(err), { enableHighAccuracy: true });
+            }
+
+            // Receive locations from everyone in the room
+            socket.on('received_Location', (payload) => {
+                const { userId, data } = payload;
+                const pos = L.latLng(data.latitude, data.longitude);
+                const state = getOrCreateState(userId);
+
+                const statusPill = document.getElementById('status-' + userId);
+                if (statusPill) {
+                    statusPill.textContent = 'online';
+                    statusPill.className = 'status-pill status-online';
+                }
+
+                if (state.marker) {
+                    state.marker.setLatLng(pos);
+                } else {
+                    state.marker = L.marker(pos).addTo(map)
+                        .bindPopup(`<b>${data.username}</b><br>Live location`);
+
+                    if (userId === currentUserId) map.setView(pos, 15);
+                }
+            });
+
+            // Remove marker + trails when a member disconnects
+            socket.on('user-disconnected', ({ userId }) => {
+                const state = memberState[userId];
+                const statusPill = document.getElementById('status-' + userId);
+                if (statusPill) {
+                    statusPill.textContent = 'offline';
+                    statusPill.className = 'status-pill status-offline';
+                }
+                if (state && state.marker) {
+                    map.removeLayer(state.marker);
+                    state.marker = null;
+                }
+            });
+
+            // Guardian: click the map to assign a route to the selected member
+            map.on('click', (e) => {
+                if (!isGuardian || !roomId) return;
+
+                const select = document.getElementById('member-select');
+                if (!select || !select.value) return alert('Add a member to the room first.');
+                const targetUserId = select.value;
+
+                const targetState = getOrCreateState(targetUserId);
+                const targetMarker = targetState.marker;
+
+                // Route starts from the member's last known position, or the guardian's
+                // position as a fallback if we haven't received a location from them yet.
+                const startLatLng = targetMarker ? targetMarker.getLatLng() : myCurrentLatLng;
+                if (!startLatLng) {
+                    return alert("Waiting for that member's GPS location before a route can be drawn.");
+                }
+
+                const router = L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1', profile: 'car' });
+                router.route([{ latLng: startLatLng }, { latLng: e.latlng }], (err, routes) => {
+                    if (err || !routes || !routes[0]) return alert('Could not fetch route geometry.');
+
+                    const route = routes[0];
+
+                    socket.emit('assign-new-route', {
+                        roomId,
+                        targetUserId,
+                        start: { lat: startLatLng.lat, lng: startLatLng.lng },
+                        end: { lat: e.latlng.lat, lng: e.latlng.lng },
+                        geometry: route.coordinates
+                    });
+                });
+            });
+
+            // A route has been assigned to some member — render it for the guardian
+            // (all routes visible) or for the member (only their own route).
+            socket.on('route-assigned-broadcast', (payload) => {
+                const { historyId, targetUserId, geometry } = payload;
+
+                if (!isGuardian && targetUserId !== currentUserId) return;
+
+                const state = getOrCreateState(targetUserId);
+                state.historyId = historyId;
+                state.activeGeometry = geometry.map(c => L.latLng(c.lat, c.lng));
+
+                if (state.routeLine) map.removeLayer(state.routeLine);
+                if (map.hasLayer(state.wrongLine)) state.wrongLine.setLatLngs([]);
+                else state.wrongLine.addTo(map);
+
+                state.routeLine = L.polyline(state.activeGeometry, { color: '#0078ff', weight: 6 }).addTo(map);
+                map.fitBounds(state.routeLine.getBounds());
+
+                if (targetUserId === currentUserId) {
+                    const alertBox = document.getElementById('deviation-alert');
+                    if (alertBox) alertBox.style.display = 'none';
+                }
+            });
+
+            // Compares a member's current position to their assigned route and flags drift > 50m
+            function checkRouteDeviation(userId, currentPos) {
+                const state = memberState[userId];
+                if (!state || !state.activeGeometry || state.activeGeometry.length === 0) return;
+
+                let minDistance = Infinity;
+                for (let i = 0; i < state.activeGeometry.length; i++) {
+                    const dist = currentPos.distanceTo(state.activeGeometry[i]);
+                    if (dist < minDistance) minDistance = dist;
+                }
+
+                if (minDistance > 50) {
+                    socket.emit('member-deviated-update', {
+                        historyId: state.historyId,
+                        lat: currentPos.lat,
+                        lng: currentPos.lng
+                    });
+                }
+            }
+
+            // Guardian-only: live deviation alerts
+            socket.on('guardian-notification-alert', (payload) => {
+                const alertBox = document.getElementById('deviation-alert');
+                if (alertBox) {
+                    alertBox.innerText = payload.message;
+                    alertBox.style.display = 'block';
+                }
+
+                const state = getOrCreateState(payload.userId);
+                if (!map.hasLayer(state.wrongLine)) state.wrongLine.addTo(map);
+                state.wrongLine.addLatLng(L.latLng(payload.lat, payload.lng));
+            });
+        })();
+    </script>
 </body>
 
 </html>
