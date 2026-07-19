@@ -4,7 +4,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>RakshaPath - Secure Safety Map</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
     <link rel="stylesheet"
@@ -24,13 +24,15 @@
         }
 
         #header-bar {
-            height: 60px;
+            height: 56px;
             background: #111;
             color: #fff;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 0 20px;
+            padding: 0 16px;
+            flex-wrap: wrap;
+            font-size: 14px;
         }
 
         #header-bar a {
@@ -42,12 +44,13 @@
 
         #main-container {
             display: flex;
-            height: calc(100% - 60px);
+            height: calc(100% - 56px);
             width: 100%;
         }
 
         #sidebar {
             width: 300px;
+            flex-shrink: 0;
             background: #f4f4f4;
             border-right: 1px solid #ccc;
             padding: 15px;
@@ -61,6 +64,7 @@
             flex-grow: 1;
             height: 100%;
             position: relative;
+            min-width: 0;
         }
 
         .alert-box {
@@ -96,8 +100,67 @@
             color: #888;
         }
 
+        .locked-banner {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
         .leaflet-routing-container {
             display: none !important;
+        }
+
+        /* Custom permanent tooltip styling — replaces default Leaflet popups */
+        .rp-tooltip {
+            background: #111 !important;
+            color: #fff !important;
+            border: 2px solid #0078ff !important;
+            border-radius: 6px !important;
+            padding: 4px 8px !important;
+            font-size: 11px !important;
+            line-height: 1.3 !important;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+            white-space: nowrap;
+        }
+
+        .rp-tooltip::before {
+            border-top-color: #0078ff !important;
+        }
+
+        .rp-tooltip .rp-tooltip-name {
+            font-weight: bold;
+            color: #4da3ff;
+        }
+
+        .rp-tooltip .rp-tooltip-email {
+            color: #ddd;
+            font-size: 10px;
+        }
+
+        /* Responsive: stack sidebar above the map on narrow / mobile screens */
+        @media (max-width: 768px) {
+            #main-container {
+                flex-direction: column;
+            }
+
+            #sidebar {
+                width: 100%;
+                max-height: 40vh;
+                border-right: none;
+                border-bottom: 1px solid #ccc;
+            }
+
+            #map {
+                height: 60vh;
+            }
+
+            #header-bar {
+                height: auto;
+                padding: 10px 12px;
+            }
         }
     </style>
 </head>
@@ -143,41 +206,48 @@
                     </p>
                     <div id="deviation-alert" class="alert-box"></div>
 
-                    <div>
-                        <h4>Members inside:</h4>
-                        <ul id="member-list" style="padding-left:15px; font-size:14px; margin-top:5px;">
-                            <% room.members.forEach(m=> { %>
-                                <li id="member-item-<%= m._id.toString() %>">
-                                    <%= m.name %>
-                                        <%= m._id.toString()===room.admin.toString() ? '(Guardian)' : '' %>
-                                            <span class="status-pill status-offline"
-                                                id="status-<%= m._id.toString() %>">offline</span>
-                                </li>
-                                <% }) %>
-                        </ul>
-                    </div>
-
-                    <% if (isGuardian) { %>
-                        <div style="background:#e2f0d9; padding:10px; border-radius:4px; font-size:12px;">
-                            <strong>Guardian Controls:</strong><br />
-                            1. Pick which member you want to assign a route to.<br />
-                            2. Click anywhere on the map to set their destination and generate a safe route.
-                        </div>
-                        <div>
-                            <label for="member-select" style="font-size:13px; font-weight:bold;">Assign route
-                                to:</label>
-                            <select id="member-select" style="width:100%; padding:8px; margin-top:5px;">
-                                <% room.members.forEach(m=> { %>
-                                    <% if (m._id.toString() !==room.admin.toString()) { %>
-                                        <option value="<%= m._id.toString() %>">
-                                            <%= m.name %>
-                                        </option>
-                                        <% } %>
-                                            <% }) %>
-                            </select>
+                    <% if (!isGuardian) { %>
+                        <div class="locked-banner">
+                            <strong>Member Mode:</strong> map controls are locked by your Guardian.
+                            Your live location and any route drift are shared automatically.
                         </div>
                         <% } %>
-                            <% } %>
+
+                            <div>
+                                <h4>Members inside:</h4>
+                                <ul id="member-list" style="padding-left:15px; font-size:14px; margin-top:5px;">
+                                    <% room.members.forEach(m=> { %>
+                                        <li id="member-item-<%= m._id.toString() %>">
+                                            <%= m.name %>
+                                                <%= m._id.toString()===room.admin.toString() ? '(Guardian)' : '' %>
+                                                    <span class="status-pill status-offline"
+                                                        id="status-<%= m._id.toString() %>">offline</span>
+                                        </li>
+                                        <% }) %>
+                                </ul>
+                            </div>
+
+                            <% if (isGuardian) { %>
+                                <div style="background:#e2f0d9; padding:10px; border-radius:4px; font-size:12px;">
+                                    <strong>Guardian Controls:</strong><br />
+                                    1. Pick which member you want to assign a route to.<br />
+                                    2. Click anywhere on the map to set their destination and generate a safe route.
+                                </div>
+                                <div>
+                                    <label for="member-select" style="font-size:13px; font-weight:bold;">Assign route
+                                        to:</label>
+                                    <select id="member-select" style="width:100%; padding:8px; margin-top:5px;">
+                                        <% room.members.forEach(m=> { %>
+                                            <% if (m._id.toString() !==room.admin.toString()) { %>
+                                                <option value="<%= m._id.toString() %>">
+                                                    <%= m.name %>
+                                                </option>
+                                                <% } %>
+                                                    <% }) %>
+                                    </select>
+                                </div>
+                                <% } %>
+                                    <% } %>
         </div>
 
         <div id="map"></div>
@@ -193,6 +263,7 @@
             const socket = io();
             const currentUserId = "<%= user._id %>";
             const currentUserName = "<%= user.name %>";
+            const currentUserEmail = "<%= user.email %>";
             const roomId = "<%= room ? room._id : '' %>";
             const isGuardian = "<%= isGuardian %>";
 
@@ -200,23 +271,40 @@
             const map = L.map('map').setView([20, 78], 5);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: 'RakshaPath Systems' }).addTo(map);
 
+            // Members have their map interactions locked — only the Guardian
+            // assigns routes by clicking. Members just watch their own status.
+            if (roomId && !isGuardian) {
+                map.dragging.disable();
+                map.touchZoom.disable();
+                map.doubleClickZoom.disable();
+                map.scrollWheelZoom.disable();
+                map.boxZoom.disable();
+                map.keyboard.disable();
+                if (map.tap) map.tap.disable();
+            }
+
             let myCurrentLatLng = null;
 
-            // Per-user state, so multiple members can each have their own live marker,
-            // assigned route, active route history id, and "wrong path" trail.
-            const memberState = {}; // userId -> { marker, routeLine, wrongLine, activeGeometry, historyId }
+            // Per-user state: live marker (with a permanent tooltip), assigned
+            // route line, off-route trail, active route geometry, and history id.
+            const memberState = {};
 
             function getOrCreateState(userId) {
                 if (!memberState[userId]) {
                     memberState[userId] = {
                         marker: null,
                         routeLine: null,
-                        wrongLine: L.polyline([], { color: 'red', weight: 4, dashArray: '5, 10' }),
+                        wrongLine: L.polyline([], { color: 'red', weight: 4, dashArray: '6, 10' }),
                         activeGeometry: null,
                         historyId: null
                     };
                 }
                 return memberState[userId];
+            }
+
+            function tooltipHtml(username, email) {
+                return '<div class="rp-tooltip-name">' + username + '</div>' +
+                    (email ? '<div class="rp-tooltip-email">' + email + '</div>' : '');
             }
 
             if (roomId) {
@@ -227,24 +315,34 @@
                 alert(payload.message || 'Could not join room channel.');
             });
 
-            // GPS watcher
+            // GPS watcher — locked to high-accuracy, no cached fixes, 10s timeout.
             if (navigator.geolocation && roomId) {
-                navigator.geolocation.watchPosition((position) => {
-                    const { latitude, longitude } = position.coords;
-                    myCurrentLatLng = L.latLng(latitude, longitude);
+                navigator.geolocation.watchPosition(
+                    (position) => {
+                        const { latitude, longitude } = position.coords;
+                        myCurrentLatLng = L.latLng(latitude, longitude);
 
-                    socket.emit('send-Location', { latitude, longitude, username: currentUserName });
+                        socket.emit('send-Location', {
+                            latitude,
+                            longitude,
+                            username: currentUserName,
+                            email: currentUserEmail
+                        });
 
-                    if (!isGuardian) {
-                        const state = memberState[currentUserId];
-                        if (state && state.activeGeometry) {
-                            checkRouteDeviation(currentUserId, myCurrentLatLng);
+                        if (!isGuardian) {
+                            const state = memberState[currentUserId];
+                            if (state && state.activeGeometry) {
+                                checkRouteDeviation(currentUserId, myCurrentLatLng);
+                            }
                         }
-                    }
-                }, (err) => console.error(err), { enableHighAccuracy: true });
+                    },
+                    (err) => console.error(err),
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                );
             }
 
-            // Receive locations from everyone in the room
+            // Receive locations from everyone in the room; render as a marker
+            // with a permanent floating tooltip (username + email) above the pin.
             socket.on('received_Location', (payload) => {
                 const { userId, data } = payload;
                 const pos = L.latLng(data.latitude, data.longitude);
@@ -258,9 +356,15 @@
 
                 if (state.marker) {
                     state.marker.setLatLng(pos);
+                    state.marker.setTooltipContent(tooltipHtml(data.username, data.email));
                 } else {
-                    state.marker = L.marker(pos).addTo(map)
-                        .bindPopup(`<b>${data.username}</b><br>Live location`);
+                    state.marker = L.marker(pos).addTo(map);
+                    state.marker.bindTooltip(tooltipHtml(data.username, data.email), {
+                        permanent: true,
+                        direction: 'top',
+                        className: 'rp-tooltip',
+                        offset: [0, -10]
+                    });
 
                     if (userId === currentUserId) map.setView(pos, 15);
                 }
@@ -280,7 +384,7 @@
                 }
             });
 
-            // Guardian: click the map to assign a route to the selected member
+            // Guardian: click the map to assign a route to the selected member.
             map.on('click', (e) => {
                 if (!isGuardian || !roomId) return;
 
@@ -291,9 +395,8 @@
                 const targetState = getOrCreateState(targetUserId);
                 const targetMarker = targetState.marker;
 
-                // Route starts from the member's last known position, or the guardian's
-                // position as a fallback if we haven't received a location from them yet.
-                const startLatLng = targetMarker ? targetMarker.getLatLng() : myCurrentLatLng;
+                // Route starts from the monitored member's last known position.
+                const startLatLng = targetMarker ? targetMarker.getLatLng() : null;
                 if (!startLatLng) {
                     return alert("Waiting for that member's GPS location before a route can be drawn.");
                 }
@@ -304,6 +407,7 @@
 
                     const route = routes[0];
 
+                    // Broadcast the full path sequence through the socket channel.
                     socket.emit('assign-new-route', {
                         roomId,
                         targetUserId,
@@ -338,7 +442,8 @@
                 }
             });
 
-            // Compares a member's current position to their assigned route and flags drift > 50m
+            // Measures distance between the member's current position and every
+            // point on the assigned route geometry; flags drift beyond 50 meters.
             function checkRouteDeviation(userId, currentPos) {
                 const state = memberState[userId];
                 if (!state || !state.activeGeometry || state.activeGeometry.length === 0) return;
@@ -358,7 +463,8 @@
                 }
             }
 
-            // Guardian-only: live deviation alerts
+            // Guardian-only: live deviation alerts — overlay the wrong-route
+            // track live onto the map using a dashed red polyline.
             socket.on('guardian-notification-alert', (payload) => {
                 const alertBox = document.getElementById('deviation-alert');
                 if (alertBox) {

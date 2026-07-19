@@ -50,21 +50,29 @@
 // })
 
 // server.listen(4000, () => console.log('Server listening on http://localhost:4000'))
-
-// ejs// index.js
+// index.js
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const socketio = require('socket.io');
 const path = require('path');
 const cookieParser = require('cookie-parser');
-const jwt = require('jsonwebtoken');
+
+// ---------------------------------------------------------------------------
+// CRITICAL: Register the User schema FIRST, before anything that calls
+// .populate('members'/'admin'/'target'/'guardian', ...). Mongoose resolves
+// ref: 'User' lazily at populate-time, so if models.js (which references
+// 'User' but never defines it) loads before the User model itself has been
+// compiled, every populate() call throws:
+//   MissingSchemaError: Schema hasn't been registered for model "User"
+// Requiring it here, before ./models, guarantees it's already in Mongoose's
+// model registry by the time Room/RouteHistory documents are populated.
+// ---------------------------------------------------------------------------
+require('./UserAuthentication/model'); // registers 'User'
+const { Room, RouteHistory } = require('./models'); // registers 'Room', 'RouteHistory'
 
 const signup = require('./UserAuthentication/signupRoutes');
 const protect = require('./configDB/Auth_User_middleware');
-const RouterMap = require('./User_add_Members/Router_Final_map');
-const User = require('./UserAuthentication/model');
-const { Room, RouteHistory } = require('./User_add_Members/RouteHistorySchema');
 
 const app = express();
 const server = http.createServer(app);
@@ -75,15 +83,15 @@ app.set('views', path.join(__dirname, 'views'));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(cookieParser());
 app.use(express.json());
-
 app.use(cors({ origin: '*' }));
 
 require('./configDB/db');
 
 app.use('/signupRoutes', signup);
-app.use('/Map', RouterMap);
 
-// ---------- Room creation / joining ----------
+// ---------------------------------------------------------------------------
+// Room creation / joining
+// ---------------------------------------------------------------------------
 
 app.post('/create-room', protect, async (req, res) => {
   try {
@@ -91,11 +99,13 @@ app.post('/create-room', protect, async (req, res) => {
     if (!roomName || !roomName.trim()) {
       return res.status(400).send('Room name is required');
     }
+
     const newRoom = await Room.create({
       roomName: roomName.trim(),
       admin: req.user._id,
       members: [req.user._id]
     });
+
     res.redirect(`/Home?roomId=${newRoom._id}`);
   } catch (err) {
     console.error('create-room error:', err);
@@ -116,6 +126,7 @@ app.post('/join-room', protect, async (req, res) => {
       room.members.push(req.user._id);
       await room.save();
     }
+
     res.redirect(`/Home?roomId=${room._id}`);
   } catch (err) {
     console.error('join-room error:', err);
@@ -123,7 +134,9 @@ app.post('/join-room', protect, async (req, res) => {
   }
 });
 
-// ---------- Home / map view ----------
+// ---------------------------------------------------------------------------
+// Home / map view
+// ---------------------------------------------------------------------------
 
 app.get('/Home', protect, async (req, res) => {
   try {
@@ -138,7 +151,6 @@ app.get('/Home', protect, async (req, res) => {
         return res.status(404).send('Room not found');
       }
 
-      // Confirm the logged-in user is actually a member of this room
       const isMember = roomDetails.members.some(
         (m) => m._id.toString() === req.user._id.toString()
       );
@@ -180,32 +192,34 @@ app.get('/logout', (req, res) => {
   res.redirect('/');
 });
 
-// ---------- Socket.io real-time layer ----------
+// ---------------------------------------------------------------------------
+// Socket.io real-time layer
+// ---------------------------------------------------------------------------
 
 const io = socketio(server, {
   cors: { origin: '*', methods: ['GET', 'POST'], credentials: true }
 });
 
-// In-memory index so we can validate + clean up without hitting the DB on every packet.
-// roomId -> { members: Map<userId, Set<socketId>>, guardianId: string, guardianSockets: Set<socketId> }
+// roomId -> { guardianId, memberIds: Set<string>, sockets: Map<userId, Set<socketId>> }
 const roomIndex = new Map();
 
 async function loadRoomIndex(roomId) {
   if (roomIndex.has(roomId)) return roomIndex.get(roomId);
   const room = await Room.findById(roomId);
   if (!room) return null;
+
   const entry = {
     guardianId: room.admin.toString(),
     memberIds: new Set(room.members.map((m) => m.toString())),
-    sockets: new Map() // userId -> Set<socketId>
+    sockets: new Map()
   };
   roomIndex.set(roomId, entry);
   return entry;
 }
 
 io.on('connection', (socket) => {
-  // A user authenticates into a specific family-space room channel.
-  // We verify room membership server-side instead of trusting the client blindly.
+  // Loops each incoming user connection safely into its own isolated room
+  // channel, after verifying the user actually belongs to that room.
   socket.on('join-room', async ({ roomId, userId }) => {
     try {
       const entry = await loadRoomIndex(roomId);
@@ -229,20 +243,26 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Broadcast live positions only to users inside the matching room
+  // Securely spreads latitude, longitude, username, and email to matching
+  // active room clients only — never to sockets outside socket.roomId.
   socket.on('send-Location', (data) => {
     if (!socket.roomId || !socket.userId) return;
 
     io.to(socket.roomId).emit('received_Location', {
       userId: socket.userId,
-      data
+      data: {
+        latitude: data.latitude,
+        longitude: data.longitude,
+        username: data.username,
+        email: data.email
+      }
     });
   });
 
-  // Guardian sets an active routing target for a specific member
+  // Guardian assigns a route to a specific tracked member.
   socket.on('assign-new-route', async (payload) => {
     try {
-      if (!socket.roomId || !socket.isGuardian) return; // server-verified, not client-claimed
+      if (!socket.roomId || !socket.isGuardian) return; // server-verified role
 
       const { targetUserId, start, end, geometry } = payload;
       const entry = roomIndex.get(socket.roomId);
@@ -269,7 +289,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Triggered when a tracked member's client detects it drifted off the assigned path
+  // Member's client detected it drifted more than 50m off the assigned path.
   socket.on('member-deviated-update', async (payload) => {
     try {
       if (!socket.roomId || !socket.userId) return;
@@ -280,7 +300,8 @@ io.on('connection', (socket) => {
         $push: { roamingPath: { lat, lng, timestamp: new Date() } }
       });
 
-      // Only notify the guardian's own socket(s), not the whole room
+      // Alert the guardian in real time — only the guardian's own socket(s),
+      // not the whole room.
       const entry = roomIndex.get(socket.roomId);
       if (!entry) return;
       const guardianSockets = entry.sockets.get(entry.guardianId);
@@ -291,7 +312,7 @@ io.on('connection', (socket) => {
           userId: socket.userId,
           lat,
           lng,
-          message: `Warning! A member has moved away from the designated safety path!`
+          message: 'Warning! A member has moved away from the designated safety path!'
         });
       });
     } catch (err) {
@@ -316,5 +337,9 @@ app.use((req, res) => {
   res.status(404).json({ success: false, message: 'API Route Not Found' });
 });
 
+// Bind to 0.0.0.0 (not just localhost) so phones/laptops on the same LAN
+// can reach the dev server via the host machine's local network IP.
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
+});
